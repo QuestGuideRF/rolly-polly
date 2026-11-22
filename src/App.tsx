@@ -1,0 +1,257 @@
+import { useState } from "react";
+import "./App.css";
+import mousetrap from "mousetrap";
+import { type Die, getRandomDie } from "./die";
+import { StickerFactory } from "./sticker";
+import { Game } from "./game";
+function DiceVisualizer({ die }: { die: Die }) {
+  return (
+    <div className="die-container">
+      <div className={`${die.className} умереть`}>
+        <p className={`${die.className}-содержимое`}>{die.displayRolledValue()}</p>
+      </div>
+      <div>
+        <p className="текстовый центр мт-2 текст-серый-400 текст-см">{die.name}</p>
+        <p className="text-center">
+          <strong>{die.modificationsApplied().join(", ")}</strong>
+        </p>
+      </div>
+    </div>
+  );
+}
+const game = new Game();
+const maxRollsPerRound = 5;
+const difficulty = 1.5;
+const baseScore = 100;
+const startingDice = Array.from({ length: 6 }, () =>
+  getRandomDie(6, 8, 10, 12)
+);
+function App() {
+  const [dice, setDice] = useState(startingDice);
+  const [round, setRound] = useState(1);
+  const [roll, setRoll] = useState(1);
+  const [rolling, setRolling] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  const [score, setScore] = useState(0);
+  const [targetScore, setTargetScore] = useState(baseScore);
+  const [lost, setLost] = useState(false);
+  const [showBonuses, setShowBonuses] = useState(false);
+  const [showFinalTotal, setShowFinalTotal] = useState(false);
+  const startNewRound = () => {
+    setUpgrading(false);
+    setScore(0);
+    setTargetScore(Math.ceil(targetScore * difficulty));
+    setRound(round + 1);
+    setRoll(1);
+    setShowBonuses(false);
+    setShowFinalTotal(false);
+  };
+  const addDie = () => {
+    const possibleDice: number[] = [
+      ...Array(1).fill(1),
+      ...Array(2).fill(2),
+      ...Array(4).fill(4),
+      ...Array(5).fill(6),
+      ...Array(5).fill(8),
+      ...Array(5).fill(10),
+      ...Array(5).fill(12),
+      ...Array(4).fill(20),
+      ...Array(3).fill("odd"),
+      ...Array(3).fill("even"),
+      ...Array(2).fill("fib"),
+      ...Array(1).fill("multi"),
+    ];
+    setDice([...dice, getRandomDie(...possibleDice)]);
+    startNewRound();
+  };
+  const addSticker = () => {
+    const die = dice[Math.floor(Math.random() * dice.length)];
+    const possibleStickers = [
+      ...Array(10).fill("3x"),
+      ...Array(5).fill("4x"),
+      ...Array(3).fill("5x"),
+      ...Array(1).fill("10x"),
+      ...Array(20).fill("+50"),
+      ...Array(10).fill("+100"),
+    ];
+    const stickerValue =
+      possibleStickers[Math.floor(Math.random() * possibleStickers.length)];
+    const sticker = StickerFactory.build(stickerValue);
+    die.addSticker(sticker);
+    startNewRound();
+  };
+  const upgradeDie = () => {
+    const upgradableDice = dice.filter((die) => die.canUpgrade);
+    if (upgradableDice.length === 0) {
+      return;
+    }
+    const die =
+      upgradableDice[Math.floor(Math.random() * upgradableDice.length)];
+    const diceIndex = dice.indexOf(die);
+    dice[diceIndex] = die.upgrade();
+    const newDice = [...dice];
+    setDice(newDice);
+    startNewRound();
+  };
+  const rollDie = () => {
+    setShowBonuses(false);
+    setShowFinalTotal(false);
+    setRolling(true);
+    const rollCount = 24;
+    const intervalMs = 50;
+    let currentRoll = 0;
+    const interval = setInterval(() => {
+      const newDice = dice.map((die) => {
+        die.roll();
+        return die;
+      });
+      setDice(newDice);
+      currentRoll++;
+      if (currentRoll >= rollCount) {
+        clearInterval(interval);
+        setTimeout(() => {
+          setShowBonuses(true);
+        }, rollCount * intervalMs + 500);
+        setTimeout(() => {
+          setShowFinalTotal(true);
+        }, rollCount * intervalMs + 1000);
+        setTimeout(() => {
+          const newScore = score + game.calculate(newDice);
+          setScore(newScore);
+          setRolling(false);
+          if (newScore >= targetScore) {
+            setUpgrading(true);
+            return;
+          }
+          if (roll >= maxRollsPerRound) {
+            setLost(true);
+          } else {
+            setRoll(roll + 1);
+          }
+        }, rollCount * intervalMs + 2000);
+      }
+    }, intervalMs);
+  };
+  mousetrap.bind("space", () => {
+    if (!rolling && !upgrading && !lost) {
+      rollDie();
+    }
+  });
+  const total = game.calculateSubTotal(dice);
+  const bonuses = game.bonusesApplied(dice);
+  const finalTotal = game.calculate(dice);
+  const Roller = () => {
+    return (
+      <div className="text-center">
+        <button
+          onClick={rollDie}
+          disabled={rolling}
+          className="bg-blue-500 text-white py-2 px-4 округлый mb-4 при наведении: bg-blue-600 отключено: непрозрачность-50 отключено: курсор не разрешен"
+        >
+          Roll Die
+        </button>
+        <div className="сетка Grid-cols-5 md:grid-cols-6 зазор-4 w-full md:w-1/2 lg:w-1/3 mx-auto">
+          {dice.map((die, index) => (
+            <DiceVisualizer key={index} die={die} />
+          ))}
+        </div>
+        <Scorecard />
+      </div>
+    );
+  };
+  const GameApp = () => {
+    if (lost) {
+      return (
+        <div className="потерянное уведомление МТ-4 П-4 bg-красный-100 бордюр бордюр-красный-300 закругленный">
+          <p className="font-bold">You Lost!</p>
+          <p>Better luck next time!</p>
+        </div>
+      );
+    }
+    if (!upgrading) {
+      return <Roller />;
+    }
+    return (
+      <div className="уведомление об обновлении mt-4 p-4 bg-yellow-100 border border-yellow-300 округлено">
+        <p className="font-bold">Upgrade Available!</p>
+        <p>1. Add a random die (d4 -&gt; d20)</p>
+        <p>2. Upgrade an random die one level.</p>
+        <p>
+          3. Add EITHER a single multi sticker to a random die, or add TWO
+          addition stickers, chosen at random.
+        </p>
+        <div className="mt-4">
+          <button
+            onClick={addDie}
+            className="bg-blue-500 text-white py-2 px-4 округлый при наведении: bg-blue-600"
+          >
+            Add Random Die
+          </button>
+          <button
+            onClick={upgradeDie}
+            className="bg-yellow-500 text-white py-2 px-4 округлый при наведении: bg-yellow-600 mx-4"
+          >
+            Upgrade Random Die
+          </button>
+          <button
+            onClick={addSticker}
+            className="bg-green-500 text-white py-2 px-4 округлый при наведении: bg-green-600"
+          >
+            Add Sticker(s)
+          </button>
+        </div>
+      </div>
+    );
+  };
+  const Scorecard = () => {
+    const stickers = game.stickersApplied(dice);
+    return (
+      <div>
+        <div className="total">Sum: {total}</div>
+        {showBonuses && (
+          <div>
+            <div className="бонусы мт-4">
+              <p>Bonuses Applied:</p>
+              {bonuses.map((bonus, index) => (
+                <div key={index}>{bonus}</div>
+              ))}
+            </div>
+            {stickers.length > 0 && (
+              <div className="наклейки мт-4">
+                <p>Stickers Applied:</p>
+                {game.stickersApplied(dice).map((sticker, index) => (
+                  <div key={index}>{sticker}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {showFinalTotal && (
+          <div className="окончательный итог mt-4 text-2xl шрифт-жирный">
+            Final Total: {finalTotal}
+          </div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <>
+      <div className="py-8">
+        <div className="text-center">
+          <h1 className="текст-4xl шрифт-жирный mb-4">Rolly Polly!</h1>
+          <div className="mb-4">
+            <div>Round: {round}</div>
+            <div>
+              Roll: {roll} / {maxRollsPerRound}
+            </div>
+            <div>
+              Score: {score} / {targetScore}
+            </div>
+          </div>
+          <GameApp />
+        </div>
+      </div>
+    </>
+  );
+}
+export default App;
